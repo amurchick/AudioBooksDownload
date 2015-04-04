@@ -20,35 +20,57 @@ if (!url.match(/^http/i)) {
 }
 
 
-var saveUrlToFile = function (path, url, cb) {
+var saveUrlToFile = function (path, urlToLoad, cb) {
 
-	var fileName = path + '/' + url.replace(/^.+\/([^/]+)$/, '$1');
+	var fileName = path + '/' + urlToLoad.replace(/^.+\/([^/]+)$/, '$1');
 
-	console.log('Download "%@" to "%@"'.fmt(url, fileName));
+	console.log('Download "%@" to "%@"'.fmt(urlToLoad, fileName));
 
-	request({url: url, encoding: null}, function (err, res, body) {
+	var host = urlToLoad.match(/\/\/([^/]+)\//);
+	if (host)
+		host = host[1];
 
-		if (err)
-			return cb(err);
-
-		if (res.statusCode !== 200)
-			console.log('Response code: %@'.fmt(res.statusCode));
-
-		//console.log(res);
-		//console.log(res.body.length);
-		delete res.body;
-		fs.writeFile(fileName, body, function (err) {
+	request(
+		{
+			url: encodeURI(urlToLoad),
+			encoding: null,
+			headers: {
+				'User-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.104 Safari/537.36',
+				'Referer': url,
+				//'Accept': '*/*',
+ 				//'Accept-Encoding': 'identity;q=1, *;q=0 ',
+ 				//'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
+ 				'Cache-Control': 'no-cache',
+ 				//'Connection': 'keep-alive',
+ 				//'Pragma': 'no-cache',
+				//'Range': 'bytes=0-',
+ 				'Host': host
+			}
+		},
+		function (err, res, body) {
 
 			if (err)
 				return cb(err);
 
-			console.log('Done: %@ bytes'.fmt(body.length));
+			if (res.statusCode !== 200)
+				console.log('Response code: %@'.fmt(res.statusCode));
 
-			cb(null, fileName);
-		});
-		//{encoding: null}, cb);
-		//console.log(body.length);
-	});
+			//console.log(res);
+			//console.log(res.body.length);
+			delete res.body;
+			fs.writeFile(fileName, body, function (err) {
+
+				if (err)
+					return cb(err);
+
+				console.log('Done: %@ bytes'.fmt(body.length));
+
+				cb(null, fileName);
+			});
+			//{encoding: null}, cb);
+			//console.log(body.length);
+		}
+	);
 };
 
 var processFunction = function (errors, window) {

@@ -1,4 +1,4 @@
 # AudioBooksDownload
 Scripts to download and extract audio files from audioknigi.club
 
-Hybrid from bash and Javascripts scripts.
+Downloads from http://audioknigi.club/ and write cover and correct tags to mp3 (book name, author, track name and number, cyrillic ok).
