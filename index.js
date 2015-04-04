@@ -6,10 +6,19 @@ var jsdom = require('jsdom');
 var request = require('request');
 var Sync = require('sync');
 var fs = require('fs');
+var ffmetadata = require("ffmetadata");
 
 require('./fmt.js');
 
-var url = process.argv[process.argv.length - 1];
+var args = process.argv.slice(process.argv[0].match(/node/i) ? 1 : 0);
+var url = args[args.length - 1];
+
+if (!url.match(/^http/i)) {
+
+	console.log('Usage: %@ url'.fmt(args[0]));
+	process.exit(-1);
+}
+
 
 var saveUrlToFile = function (path, url, cb) {
 
@@ -17,17 +26,28 @@ var saveUrlToFile = function (path, url, cb) {
 
 	console.log('Download "%@" to "%@"'.fmt(url, fileName));
 
-	request(url, function (err, res, body) {
+	request({url: url, encoding: null}, function (err, res, body) {
 
 		if (err)
 			return cb(err);
 
-		console.log('Response code: %@'.fmt(res.statusCode));
+		if (res.statusCode !== 200)
+			console.log('Response code: %@'.fmt(res.statusCode));
 
+		//console.log(res);
+		//console.log(res.body.length);
 		delete res.body;
-		console.log(res);
-		fs.writeFile(fileName, body, {encoding: 'ansi'}, cb);
-		console.log(body.length);
+		fs.writeFile(fileName, body, function (err) {
+
+			if (err)
+				return cb(err);
+
+			console.log('Done: %@ bytes'.fmt(body.length));
+
+			cb(null, fileName);
+		});
+		//{encoding: null}, cb);
+		//console.log(body.length);
 	});
 };
 
@@ -38,6 +58,10 @@ var processFunction = function (errors, window) {
 
 			var $ = window.$;
 			var title = $('[property="og:title"]').attr('content');
+			var parts = title.split(/\s+\-\s+/);
+			var artist = parts[0];
+			var book = parts[1];
+
 			var content = $('#content');
 			var img = content.find('img[alt=image]:first').attr('src');
 			var data = content.find('script:first').text();
@@ -48,29 +72,41 @@ var processFunction = function (errors, window) {
 			if (!fs.existsSync(title))
 				fs.mkdirSync(title);
 
-			saveUrlToFile.sync(null, title, img);
+			var imgFileName = saveUrlToFile.sync(null, title, img);
 
-			data
-				.match(/{[^{]+title:"[^"]+"[^}]+mp3:"[^"]+"[^}]+}/gmi)
-				.forEach(function (item) {
+			data = data.match(/{[^{]+title:"[^"]+"[^}]+mp3:"[^"]+"[^}]+}/gmi);
+			var tracks = data.length;
 
-					item = item.replace(/(title|mp3):/g, '"$1":').replace(/(\n|\r)/g, '').replace(/,\s+}/g, '}');
-					item = JSON.parse(item);
+			data.forEach(function (item) {
 
-					//saveUrlToFile.sync(null, title, item.mp3);
+				item = item.replace(/(title|mp3):/g, '"$1":').replace(/(\n|\r)/g, '').replace(/,\s+}/g, '}');
+				item = JSON.parse(item);
 
-					//	if (!error && response.statusCode == 200) {
-					//		console.log(body) // Show the HTML for the Google homepage.
-					//	}
-					//})
+				var fileName = saveUrlToFile.sync(null, title, item.mp3);
 
-					//console.log(response);
-					process.exit();
-				});
+				//var meta = ffmetadata.read.sync(ffmetadata, fileName);
+				//console.log(meta);
+				var num = fileName.match(/(\d+)[^/]+$/);
+				num = num ? parseInt(num[1]) : 0;
+
+				ffmetadata.write.sync(
+					ffmetadata,
+					fileName,
+					{
+						artist: artist,
+						album: book,
+						title: fileName.split(/\//)[1].replace(/^\d+_/, '').replace(/\.mp3$/i, ''),
+						track: '%@/%@'.fmt(num, tracks)
+					},
+					{
+						attachments: [imgFileName]
+					}
+				);
+			});
 
 
 		},
-		function (err, out) {
+		function (err) {
 
 			if (err)
 				throw err && err.stack ? err.stack : err;
