@@ -1,5 +1,6 @@
 /**
  * Created by a.murin on 03.04.15.
+ *
  */
 
 var jsdom = require('jsdom');
@@ -93,6 +94,8 @@ var processFunction = function (errors, window) {
 
 			if (!fs.existsSync(title))
 				fs.mkdirSync(title);
+
+			fs.writeFileSync('%@/%@'.fmt(title, 'url.txt'), url);
 
 			var imgFileName = saveUrlToFile.sync(null, title, img);
 
