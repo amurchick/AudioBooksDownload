@@ -3,29 +3,48 @@
  *
  */
 
-let jsdom = require('jsdom');
-let request = require('request-promise');
-let co = require('co');
-let fs = require('fs');
-let ffmetadata = require("ffmetadata");
+const util = require('util');
+const jsdom = require('jsdom');
+const { JSDOM } = jsdom;
+const rp = require('request-promise-native');
+const fs = require('fs');
+//noinspection SpellCheckingInspection
+const ffmetadata = require("ffmetadata");
 
-let args = process.argv.slice(process.argv[0].match(/node/i) ? 1 : 0);
-let url = args[args.length - 1];
+const access = util.promisify(fs.access);
+//noinspection SpellCheckingInspection
+const ffmetadataWrite = util.promisify(ffmetadata.write);
 
-if (!url.match(/^http/i)) {
+let fileExists = async fileName => {
 
-  console.log('Usage: %@ url'.fmt(args[0]));
-  process.exit(-1);
-}
+  try {
 
-let saveUrlToFile = function (path, urlToLoad) {
+    await access(fileName, fs.constants.R_OK);
+    return true;
+  }
+  catch (err) {
 
-  return co( function* () {
+    // console.log(`fileExists() error:`, err);
+    return null;
+  }
+};
+
+let saveUrlToFile = async (path, urlToLoad) => {
+
+  try {
 
     let fileName = null;
     if (path) {
 
       fileName = path + '/' + urlToLoad.replace(/^.+\/([^/]+)$/, '$1');
+
+      let exists = await fileExists(fileName);
+      if (exists) {
+
+        console.log(`Download "${urlToLoad}" to "${fileName}" skipped - file exists`);
+        return fileName;
+      }
+
       console.log(`Download "${urlToLoad}" to "${fileName}"...`);
     }
     else {
@@ -34,60 +53,101 @@ let saveUrlToFile = function (path, urlToLoad) {
     }
 
     let host = urlToLoad.match(/\/\/([^/]+)\//);
-    if (host)
-      host = host[1];
+    if (host) {
 
-    let res = yield request({
+      host = host[1];
+    }
+
+    let res = await rp({
       url: encodeURI(urlToLoad),
       encoding: null,
       headers: {
         'User-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.104 Safari/537.36',
         'Referer': url,
-        //'Accept': '*/*',
-        //'Accept-Encoding': 'identity;q=1, *;q=0 ',
-        //'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
         'Cache-Control': 'no-cache',
-        //'Connection': 'keep-alive',
-        //'Pragma': 'no-cache',
-        //'Range': 'bytes=0-',
         'Host': host,
       },
     });
 
     if (!path) {
 
+      // If no PATH - no save required -> return readed body
       return res.toString('utf8');
     }
 
     fs.writeFileSync(fileName, res);
-    console.log(`Done: ${res.length} bytes`);
+    console.log(`Done${fileName ? ` "${fileName}"` : ''}: ${res.length} bytes`);
 
     return fileName;
-  })
-    .catch(err => {
+  }
+    catch (err) {
 
       console.error(`saveUrlToFile(${path}, ${urlToLoad})`, err);
-    })
+      throw err;
+    }
 };
 
-let processFunction = function (errors, window) {
+const processFile = async (path, item, artist, book, tracks, imgFileName) => {
 
-  co(function* () {
+  try {
 
-    let $ = window.$;
-    let title = $('[property="og:title"]').attr('content');
-    let parts = title.split(/\s+\-\s+/);
+    let fileName = await saveUrlToFile(path, item.mp3);
+
+    if (fileName) {
+
+      //let meta = ffmetadata.read.sync(ffmetadata, fileName);
+      //console.log(meta);
+
+      // let num = fileName.match(/(\d+)[^/]+$/);
+      // num = num ? parseInt(num[1]) : 0;
+
+      await ffmetadataWrite(
+        fileName,
+        {
+          artist: artist,
+          album: book,
+          title: fileName.split(/\//)[1]
+            // .replace(/^\d+_/, '')
+            .replace(/\.mp3$/i, ''),
+          track: `${item.num}/${tracks}`,
+        },
+        {
+          attachments: [imgFileName]
+        }
+      );
+    }
+  }
+  catch (err) {
+
+    console.error(`processFile(${path}, ${url})`, err);
+    throw err;
+  }
+};
+
+const processFunction = async (errors, dom) => {
+
+  try {
+
+    let document = dom.window.document;
+    let title = document.querySelector('[property="og:title"]').attributes.content.textContent;
+    // let title = $('[property="og:title"]').attr('content');
+    let parts = title.split(/\s+-\s+/);
     let artist = parts[0];
     let book = parts[1];
 
-    let content = $('#content');
-    let img = content.find('img[alt=image]:first').attr('src');
-    let scripts = content.find('script');
+    // let content = $('#content');
+    let content = document.querySelector('#content');
+    // let img = content.find('img[alt=image]:first').attr('src');
+    // debugger;
+    let img = content.querySelector('.picture-side img').attributes.src.textContent;
+    // let scripts = content.find('script');
+    let scripts = content.querySelectorAll('script');
 
     let found;
     for (let l = scripts.length, i = 0; i < l; i++) {
 
-      let matched = scripts.eq(i).text().match(/audioPlayer\((\d+),/);
+      // let matched = scripts.eq(i).text().match(/audioPlayer\((\d+),/);
+      let matched = scripts[i].textContent.match(/audioPlayer\((\d+),/);
       if (matched)
         found = matched[1];
     }
@@ -97,12 +157,15 @@ let processFunction = function (errors, window) {
       throw 'Unable to find ID';
     }
 
-    let data = yield saveUrlToFile(null, 'http://audioknigi.club/rest/bid/' + found);
+    let data = await saveUrlToFile(null, 'http://audioknigi.club/rest/bid/' + found);
 
     data = JSON.parse(data);
+    data.forEach((item, idx) => item.num = idx + 1);
+    let tracks = data.length;
 
     console.log('Title:', title);
     console.log('Image:', img);
+    console.log('Tracks:', tracks);
 
     if (!fs.existsSync(title)) {
 
@@ -111,65 +174,95 @@ let processFunction = function (errors, window) {
 
     fs.writeFileSync(`${title}/url.txt`, url);
 
-    let imgFileName = yield saveUrlToFile(title, img);
+    let imgFileName = await saveUrlToFile(title, img);
 
     //data = data.match(/{[^{]+title:"[^"]+"[^}]+mp3:"[^"]+"[^}]+}/gmi);
-    let tracks = data.length;
 
-    for (let item of data) {
+    let promises = [];
 
-      //item = item.replace(/(title|mp3):/g, '"$1":').replace(/(\n|\r)/g, '').replace(/,\s+}/g, '}');
-      //item = JSON.parse(item);
+    let maxConcurrentDownloads = 5;
 
-      let fileName = yield saveUrlToFile(title, item.mp3);
+    while (data.length) {
 
-      //let meta = ffmetadata.read.sync(ffmetadata, fileName);
-      //console.log(meta);
-      let num = fileName.match(/(\d+)[^/]+$/);
-      num = num ? parseInt(num[1]) : 0;
+      while (data.length && promises.length < maxConcurrentDownloads) {
 
-      yield new Promise((resolve, reject) => {
+        let item = data.shift();
+        promises.push({
+          promise: processFile(title, item, artist, book, tracks, imgFileName)
+            .then(() => item.mp3)
+            .catch(err => {
 
-        ffmetadata.write(
-          fileName,
-          {
-            artist: artist,
-            album: book,
-            title: fileName.split(/\//)[1].replace(/^\d+_/, '').replace(/\.mp3$/i, ''),
-            track: `${num}/${tracks}`,
-          },
-          {
-            attachments: [imgFileName]
-          },
-          err => {
-
-            if (err) {
-
-              reject(err);
-            }
-            else {
-
-              resolve();
-            }
-          }
-        );
-      });
-    }
-  })
-    .catch(err => {
-
-      if (err) {
-
-        throw err.stack || err;
+              console.log(`'${item.mp3} failed to download - push it to queue again...`);
+              data.push(item);
+            }),
+          id: item.mp3,
+        });
       }
-    });
+
+      let resolved = await Promise.race(promises.map(item => item.promise));
+      promises = promises
+        .filter(p => p.id !== resolved);
+    }
+
+    if (promises.length) {
+
+      await Promise.all(promises.map(item => item.promise));
+    }
+
+  }
+  catch(err) {
+
+    console.log('processFunction() error', err.stack || err);
+  }
 };
 
-console.log(`Downloading ${url}...`);
+const main = async (url) => {
 
-jsdom.env(
-  url,
-  ['http://code.jquery.com/jquery.js'],
-  processFunction
-);
+  try {
+
+
+    // jsdom.env(
+    //   url,
+    //   ['http://code.jquery.com/jquery.js'],
+    //   processFunction
+    // );
+
+    console.log(`Downloading ${url}...`);
+
+    // const index = await saveUrlToFile(null, url);
+
+    // console.log(`Parsing ${url}...`);
+    // const dom = new JSDOM(index);
+
+    const dom = await JSDOM.fromURL(url);
+    // console.log(`Processing ${url}...`);
+    await processFunction(null, dom);
+  }
+  catch (err) {
+
+    console.log(`main() error:`, err.stack || err);
+  }
+};
+
+// const argv = require('yargs')
+//   .option('verbose', {
+//     alias: 'v',
+//     default: false
+//   })
+//   .help()
+//   .argv;
+//
+// console.log(argv);
+// process.exit(-1);
+
+const args = process.argv.slice(process.argv[0].match(/node/i) ? 1 : 0);
+const url = args.pop();
+
+if (!url.match(/^http/i)) {
+
+  console.log(`Usage: ${args[0]} url`);
+  process.exit(-1);
+}
+
+const promise = main(url);
 
