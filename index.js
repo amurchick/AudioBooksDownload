@@ -167,6 +167,8 @@ const processFunction = async (errors, dom) => {
     console.log('Image:', img);
     console.log('Tracks:', tracks);
 
+    title = title.replace(/(?:\\|\/)/g, '-');
+
     if (!fs.existsSync(title)) {
 
       fs.mkdirSync(title);
