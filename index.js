@@ -8,6 +8,7 @@ const jsdom = require('jsdom');
 const { JSDOM } = jsdom;
 const rp = require('request-promise-native');
 const fs = require('fs');
+const os = require('os');
 //noinspection SpellCheckingInspection
 const ffmetadata = require("ffmetadata");
 
@@ -80,11 +81,11 @@ let saveUrlToFile = async (path, urlToLoad) => {
 
     return fileName;
   }
-    catch (err) {
+  catch (err) {
 
-      console.error(`saveUrlToFile(${path}, ${urlToLoad})`, err);
-      throw err;
-    }
+    console.error(`saveUrlToFile(${path}, ${urlToLoad})`, err);
+    throw err;
+  }
 };
 
 const processFile = async (path, item, artist, book, tracks, imgFileName) => {
@@ -167,7 +168,9 @@ const processFunction = async (errors, dom) => {
     console.log('Image:', img);
     console.log('Tracks:', tracks);
 
-    title = title.replace(/(?:\\|\/)/g, '-');
+    title = title
+      .replace(/(?:\\|\/)/g, '-')
+      .replace(/(:\s+\S)/g, (_, what) => what.toUpperCase().replace(/:/, '.'));
 
     if (!fs.existsSync(title)) {
 
@@ -212,7 +215,7 @@ const processFunction = async (errors, dom) => {
     }
 
   }
-  catch(err) {
+  catch (err) {
 
     console.log('processFunction() error', err.stack || err);
   }
@@ -266,5 +269,8 @@ if (!url.match(/^http/i)) {
   process.exit(-1);
 }
 
-const promise = main(url);
+main(url)
+  .catch(err => console.error(err))
+  .then(() => process.exit());
+
 
