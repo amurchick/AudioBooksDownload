@@ -1,6 +1,6 @@
 {
   "name": "audio-books-download",
-  "version": "1.0.5",
+  "version": "2.0.5",
   "description": "Scripts to download and extract audio files from audioknigi.club",
   "main": "index.js",
   "scripts": {
