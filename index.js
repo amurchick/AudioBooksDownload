@@ -169,6 +169,7 @@ const processFunction = async (errors, dom) => {
     console.log('Tracks:', tracks);
 
     title = title
+      .replace(/("|')/g, '')
       .replace(/(?:\\|\/)/g, '-')
       .replace(/(:\s+\S)/g, (_, what) => what.toUpperCase().replace(/:/, '.'));
 
